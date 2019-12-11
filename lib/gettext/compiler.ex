@@ -359,14 +359,21 @@ defmodule Gettext.Compiler do
     po_files = po_files_in_dir(dir)
 
     if Keyword.get(opts, :one_module_per_locale, false) do
-      {quoted, locales} =
-        Enum.map_reduce(po_files, %{}, &compile_parallel_po_file(env, &1, &2, plural_mod))
+      po_files
+      |> Enum.group_by(fn path ->
+        {locale, _} = locale_and_domain_from_path(path)
+        locale
+      end)
+      |> Enum.reduce([], fn {locale, po_files}, quoted_acc ->
+        {quoted, locales} =
+          Enum.map_reduce(po_files, %{}, &compile_parallel_po_file(env, &1, &2, plural_mod))
 
-      locales
-      |> Enum.map(&Kernel.ParallelCompiler.async(fn -> create_locale_module(env, &1) end))
-      |> Enum.each(&Task.await(&1, :infinity))
+        locales
+        |> Enum.map(&Kernel.ParallelCompiler.async(fn -> create_locale_module(env, &1) end))
+        |> Enum.each(&Task.await(&1, :infinity))
 
-      quoted
+        [quoted | quoted_acc]
+      end)
     else
       Enum.map(po_files, &compile_serial_po_file(env, &1, plural_mod))
     end
